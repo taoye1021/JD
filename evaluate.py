@@ -40,14 +40,12 @@ def getRecall(pre,res):
     pre_sku=set(pre['sku_id'])
     res_sku=set(res['sku_id'])
     F11_TP=len((pre_user)&(res_user))
-    F11_FN=len(res_user-pre_user)
-    F11_rec=F11_TP/float(F11_TP+F11_FN)
+    F11_rec=F11_TP/float(len(res['use_id']))
     for user,sku in zip(list(pre['user_id']),list(pre['sku_id'])):
         tmp=res[(res['user_id']==user)&(res['sku_id']==sku)]
         if tmp.empty==False:
             F12_TP+=1
-    F12_FN=len(res_sku-pre_sku)
-    F12_rec=F12_TP/float((F12_TP+F12_FN))
+    F12_rec=F12_TP/float(len(res_sku))
     print "F11_rec",F11_rec
     print "F12_rec",F12_rec
     return F11_rec,F12_rec
