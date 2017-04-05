@@ -34,6 +34,9 @@ def getTopred(pred_day,x):
     用户加入购物车中下单的比值
     用户近三天的行为加权
 '''
+all_cleanAction=pd.read_csv('../cleanData/clean_allActions.csv')
+user_info=pd.read_csv('../cleanData/clean_users_info.csv')
+user_info.dropna(inplace=True)
 def getUserFeatures(all_cleanAction,user_info,start,end,pre_day):
     '''
     :param all_cleanAction: 清洗后的行为数据
@@ -42,15 +45,14 @@ def getUserFeatures(all_cleanAction,user_info,start,end,pre_day):
     :param pre_day: 预测起始日
     :return:
     '''
-    user_info['user_reg_dt']=user_info.user_reg_dt.apply(lambda x:getTopred2(pre_day,x))
+    user_info['user_reg_tm']=user_info.user_reg_tm.apply(lambda x:getTopred(pre_day,x))
     ##提取用户性别，等级注册日期到预测日的距离特征，注意没有对类别型变量进行getdummies变换
-    sub_info=user_info[['user_id','age','sex','user_lv_cd','user_reg_dt']]
+    sub_info=user_info[['user_id','age','sex','user_lv_cd','user_reg_tm']]
     sub_info_users=list(sub_info['user_id'])
-    ##提取start到end这个时间段内的用户行为数据
-    sub_Action=all_cleanAction[(all_cleanAction['time']>=start)&(all_cleanAction['time']<=end)]
+    ##提取start到end这个时间段内的user_info中用户行为数据
+    sub_Action=all_cleanAction[(all_cleanAction['time']>=start)&(all_cleanAction['time']<=end)&(all_cleanAction['user_id'].isin (sub_info_users))]
     sub_Action=pd.merge(sub_info,sub_Action,on='user_id',how='left')
     sub_Action=sub_Action[['user_id','sku_id','time','model_id','type','cate','brand']]
-    #sub_Action.replace(np.nan,0,inplace=True)
 
     ##统计每个用户对每个行为的次数
     t1=sub_Action[['user_id','type']]
@@ -61,6 +63,7 @@ def getUserFeatures(all_cleanAction,user_info,start,end,pre_day):
     ##用户浏览量
     user_reads=temp[temp['type']==1]
     user_reads=user_reads[['user_id','typeCounts']]
+
     ##用户下单量
     user_buys=temp[temp['type']==4]
     user_buys=user_buys[['user_id','typeCounts']]
@@ -70,17 +73,17 @@ def getUserFeatures(all_cleanAction,user_info,start,end,pre_day):
     t2=sub_Action[['user_id','sku_id','type']]
     t2['typeCounts']=1
     t2=t2.groupby(['user_id','sku_id','type']).agg('sum').reset_index()
-    temp=t2[t2['type']==4]
+    t2_temp=t2[t2['type']==4]
     ratio=[]
-    for i in range(len(temp)):
-        user=list(temp.iloc[i])[0]
-        user_temp=temp[temp['user_id']==user]
-        two_count=len(user_temp[user_temp['typeCount']>=2])
+    for i in range(len(t2_temp)):
+        user=list(t2_temp.iloc[i])[0]
+        user_temp=t2_temp[t2_temp['user_id']==user]
+        two_count=len(user_temp[user_temp['typeCounts']>=2])
         item_counts=len(user_temp)
         rat=two_count/float(item_counts)
         ratio.append(rat)
-    temp.insert(4,'two_ratio',ratio)
-    two_buyitem_ratio=temp[['user_id','two_ratio']]
+    t2_temp.insert(4,'two_ratio',ratio)
+    two_buyitem_ratio=t2_temp[['user_id','two_ratio']]
     two_buyitem_ratio=two_buyitem_ratio.drop_duplicates(['user_id'])
 
 
@@ -88,6 +91,7 @@ def getUserFeatures(all_cleanAction,user_info,start,end,pre_day):
     ##用户购买量和浏览量的比值
     user_reads_buys=pd.merge(user_reads,user_buys,on='user_id',how='outer')
     user_reads_buys.replace(np.nan,0,inplace=True)
+    #print user_reads_buys.head()
     user_reads_buys['ratio']=user_reads_buys['typeCounts_y']/user_reads_buys['typeCounts_x']
     ##浏览量为0时，比值结果为inf用-1代替
     user_reads_buys.replace(np.inf,-1,inplace=True)
@@ -96,11 +100,15 @@ def getUserFeatures(all_cleanAction,user_info,start,end,pre_day):
     ##用户关注量
     user_attention=temp[temp['type']==5]
     user_attention=user_attention[['user_id','typeCounts']]
+    print user_attention.head()
+    print "user_buys:",user_buys.head()
+
 
     ##用户购买量和关注量的比值
     user_attention_buys=pd.merge(user_attention,user_buys,on='user_id',how='outer')
     user_attention_buys.replace(np.nan,0,inplace=True)
-    user_attention_buys['ratio']=user_attention_buys['typeCounts_y']/user_reads_buys['typeCounts_x']
+    print user_attention_buys.head
+    user_attention_buys['ratio']=user_attention_buys['typeCounts_y']/user_attention_buys['typeCounts_x']
     ##浏览量为0时，比值结果为inf用-1代替
     user_attention_buys.replace(np.inf,-1,inplace=True)
     user_attention_buys=user_attention_buys[['user_id','ratio']]
@@ -287,19 +295,65 @@ def getUserFeatures(all_cleanAction,user_info,start,end,pre_day):
     i=-1
     for user in list(all_users):
         i+=1
-        a=int(list(Action_end_3[Action_end_3['user_id']==user]['count_3'])[0])*5
-        b=int(list(Action_end_2[Action_end_2['user_id']==user]['count_2'])[0])*2
-        c=int(list(Action_end_1[Action_end_1['user_id']==user]['count_3'])[0])
-        weight=sum(a,b,c)
+        if Action_end_3[Action_end_3['user_id']==user].empty==False:
+            a=int(list(Action_end_3[Action_end_3['user_id']==user]['count_3'])[0])*5
+        else:
+            a=0
+
+        if Action_end_2[Action_end_2['user_id']==user].empty==False:
+            b=int(list(Action_end_2[Action_end_2['user_id']==user]['count_2'])[0])*2
+        else:
+            b=0
+
+        if Action_end_1[Action_end_1['user_id']==user].empty==False:
+            c=int(list(Action_end_1[Action_end_1['user_id']==user]['count_1'])[0])
+        else:
+            c=0
+        weight=a+b+c
         user_Thre_active.loc[i]=[user,weight]
     user_Thre_active=user_Thre_active[['user_id','weight']]
 
+    ##修改上述特征一些列名使其更加清晰其意义
+    user_reads.rename(columns={'typeCounts':'reads_count'},inplace=True)
+    user_buys.rename(columns={'typeCounts':'buys_count'},inplace=True)
+    user_attention.rename(columns={'typeCounts':'attention_count'},inplace=True)
+    two_buyitem_ratio.rename(columns={'two_ratio':'two_buy_ratio'},inplace=True)
+    user_reads_buys.rename(columns={'ratio':'reads_buys_ratio'},inplace=True)
+    user_attention_buys.rename(columns={'ratio':'attention_buys_ratio'},inplace=True)
+    user_addshop.rename(columns={'typeCounts':'addshop_count'},inplace=True)
+    user_delshop.rename(columns={'typeCounts':'delshop_count'},inplace=True)
+    buy_toPre.rename(columns={'time':'buy_toPre'},inplace=True)
+    active_toPre.rename(columns={'time':'active_toPre'},inplace=True)
+    max_buy_toPre.rename(columns={'time':'max_buy_toPre'},inplace=True)
+    buyIn_reads_ratio.rename(columns={'ratio':'buyIn_reads_ratio'},inplace=True)
+    buyIn_attention_ratio.rename(columns={'ratio':'buyIn_attention_ratio'},inplace=True)
+    buyIn_addshop_ratio.rename(columns={'ratio':'buyIn_addshop_ratio'},inplace=True)
+    user_Thre_active.rename(columns={'weight':'Three_weight'},inplace=True)
+
     ##下面将以上用户一系列特征融合成一张表
+    all_users_info=pd.merge(user_info,user_reads,on='user_id',how='left')
+    all_users_info=pd.merge(all_users_info,user_buys,on='user_id',how='left')
+    all_users_info=pd.merge(all_users_info,two_buyitem_ratio,on='user_id',how='left')
+    all_users_info=pd.merge(all_users_info,user_reads_buys,on='user_id',how='left')
+    all_users_info=pd.merge(all_users_info,user_attention,on='user_id',how='left')
+    all_users_info=pd.merge(all_users_info,user_attention_buys,on='user_id',how='left')
+    all_users_info=pd.merge(all_users_info,user_addshop,on='user_id',how='left')
+    all_users_info=pd.merge(all_users_info,user_delshop,on='user_id',how='left')
+    all_users_info=pd.merge(all_users_info,active_days,on='user_id',how='left')
+    all_users_info=pd.merge(all_users_info,buy_toPre,on='user_id',how='left')
+    all_users_info=pd.merge(all_users_info,active_toPre,on='user_id',how='left')
+    all_users_info=pd.merge(all_users_info,max_buy_toPre,on='user_id',how='left')
+    all_users_info=pd.merge(all_users_info,buyIn_reads_ratio,on='user_id',how='left')
+    all_users_info=pd.merge(all_users_info,buyIn_attention_ratio,on='user_id',how='left')
+    all_users_info=pd.merge(all_users_info,buyIn_addshop_ratio,on='user_id',how='left')
+    all_users_info=pd.merge(all_users_info,user_Thre_active,on='user_id',how='left')
+    all_users_info.replace(np.nan,0,inplace=True)
+    return all_users_info
 
 
-
-
-
+if __name__=='__main__':
+    all_users_info=getUserFeatures(all_cleanAction,user_info,'2016-04-08','2016-04-10','2016-04-11')
+    print all_users_info
 
 
 
