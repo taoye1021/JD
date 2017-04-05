@@ -36,7 +36,8 @@ def getTopred(pred_day,x):
 '''
 all_cleanAction=pd.read_csv('../cleanData/clean_allActions.csv')
 user_info=pd.read_csv('../cleanData/clean_users_info.csv')
-user_info.dropna(inplace=True)
+##注册日期里面有三个nan值，不多可以将其所在三行数据去除
+user_info=user_info[user_info['user_reg_tm']==user_info['user_reg_tm']]
 def getUserFeatures(all_cleanAction,user_info,start,end,pre_day):
     '''
     :param all_cleanAction: 清洗后的行为数据
@@ -332,28 +333,43 @@ def getUserFeatures(all_cleanAction,user_info,start,end,pre_day):
 
     ##下面将以上用户一系列特征融合成一张表
     all_users_info=pd.merge(user_info,user_reads,on='user_id',how='left')
-    all_users_info=pd.merge(all_users_info,user_buys,on='user_id',how='left')
-    all_users_info=pd.merge(all_users_info,two_buyitem_ratio,on='user_id',how='left')
-    all_users_info=pd.merge(all_users_info,user_reads_buys,on='user_id',how='left')
-    all_users_info=pd.merge(all_users_info,user_attention,on='user_id',how='left')
-    all_users_info=pd.merge(all_users_info,user_attention_buys,on='user_id',how='left')
-    all_users_info=pd.merge(all_users_info,user_addshop,on='user_id',how='left')
-    all_users_info=pd.merge(all_users_info,user_delshop,on='user_id',how='left')
-    all_users_info=pd.merge(all_users_info,active_days,on='user_id',how='left')
-    all_users_info=pd.merge(all_users_info,buy_toPre,on='user_id',how='left')
-    all_users_info=pd.merge(all_users_info,active_toPre,on='user_id',how='left')
-    all_users_info=pd.merge(all_users_info,max_buy_toPre,on='user_id',how='left')
-    all_users_info=pd.merge(all_users_info,buyIn_reads_ratio,on='user_id',how='left')
-    all_users_info=pd.merge(all_users_info,buyIn_attention_ratio,on='user_id',how='left')
-    all_users_info=pd.merge(all_users_info,buyIn_addshop_ratio,on='user_id',how='left')
-    all_users_info=pd.merge(all_users_info,user_Thre_active,on='user_id',how='left')
     all_users_info.replace(np.nan,0,inplace=True)
+    all_users_info=pd.merge(all_users_info,user_buys,on='user_id',how='left')
+    all_users_info.replace(np.nan,0,inplace=True)
+    all_users_info=pd.merge(all_users_info,two_buyitem_ratio,on='user_id',how='left')
+    all_users_info.replace(np.nan,-1,inplace=True)
+    all_users_info=pd.merge(all_users_info,user_reads_buys,on='user_id',how='left')
+    all_users_info.replace(np.nan,-1,inplace=True)
+    all_users_info=pd.merge(all_users_info,user_attention,on='user_id',how='left')
+    all_users_info.replace(np.nan,0,inplace=True)
+    all_users_info=pd.merge(all_users_info,user_attention_buys,on='user_id',how='left')
+    all_users_info.replace(np.nan,-1,inplace=True)
+    all_users_info=pd.merge(all_users_info,user_addshop,on='user_id',how='left')
+    all_users_info.replace(np.nan,0,inplace=True)
+    all_users_info=pd.merge(all_users_info,user_delshop,on='user_id',how='left')
+    all_users_info.replace(np.nan,0,inplace=True)
+    all_users_info=pd.merge(all_users_info,active_days,on='user_id',how='left')
+    all_users_info.replace(np.nan,0,inplace=True)
+    all_users_info=pd.merge(all_users_info,buy_toPre,on='user_id',how='left')
+    all_users_info.replace(np.nan,-1,inplace=True)
+    all_users_info=pd.merge(all_users_info,active_toPre,on='user_id',how='left')
+    all_users_info.replace(np.nan,-1,inplace=True)
+    all_users_info=pd.merge(all_users_info,max_buy_toPre,on='user_id',how='left')
+    all_users_info.replace(np.nan,-1,inplace=True)
+    all_users_info=pd.merge(all_users_info,buyIn_reads_ratio,on='user_id',how='left')
+    all_users_info.replace(np.nan,-1,inplace=True)
+    all_users_info=pd.merge(all_users_info,buyIn_attention_ratio,on='user_id',how='left')
+    all_users_info.replace(np.nan,-1,inplace=True)
+    all_users_info=pd.merge(all_users_info,buyIn_addshop_ratio,on='user_id',how='left')
+    all_users_info.replace(np.nan,-1,inplace=True)
+    all_users_info=pd.merge(all_users_info,user_Thre_active,on='user_id',how='left')
+    all_users_info.replace(np.nan,-1,inplace=True)
     return all_users_info
 
 
 if __name__=='__main__':
-    all_users_info=getUserFeatures(all_cleanAction,user_info,'2016-04-08','2016-04-10','2016-04-11')
-    print all_users_info
+    all_users_info=getUserFeatures(all_cleanAction,user_info,'2016-04-01','2016-04-15','2016-04-16')
+    all_users_info.to_csv('all_user_features_04.csv',index=None)
 
 
 
