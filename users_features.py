@@ -4,9 +4,14 @@ import numpy as np
 import datetime
 
 ##x到预测日的距离
-def getTopred(pred_day,x):
+def getTopred2(pred_day,x):
     n_p=datetime.datetime.strptime(pred_day,"%Y-%m-%d")
     n_d=datetime.datetime.strptime(x,'%Y/%m/%d')
+    return (n_p-n_d).days
+
+def getTopred(pred_day,x):
+    n_p=datetime.datetime.strptime(pred_day,"%Y-%m-%d")
+    n_d=datetime.datetime.strptime(x,'%Y-%m-%d')
     return (n_p-n_d).days
 
 ##获取用户特征
@@ -36,7 +41,7 @@ def getUserFeatures(all_cleanAction,user_info,start,end,pre_day):
     :param pre_day: 预测起始日
     :return:
     '''
-    user_info['user_reg_dt']=user_info.user_reg_dt.apply(lambda x:getTopred(pre_day,x))
+    user_info['user_reg_dt']=user_info.user_reg_dt.apply(lambda x:getTopred2(pre_day,x))
     ##提取用户性别，等级注册日期到预测日的距离特征，注意没有对类别型变量进行getdummies变换
     sub_user=user_info[['user_id','age','sex','user_lv_cd','user_reg_dt']]
 
@@ -66,7 +71,7 @@ def getUserFeatures(all_cleanAction,user_info,start,end,pre_day):
     for i in range(len(temp)):
         user=list(temp.iloc[i])[0]
         user_temp=temp[temp['user_id']==user]
-        two_count=user_temp[user_temp['typeCount']>=2]
+        two_count=len(user_temp[user_temp['typeCount']>=2])
         item_counts=len(user_temp)
         rat=two_count/float(item_counts)
         ratio.append(rat)
@@ -80,7 +85,6 @@ def getUserFeatures(all_cleanAction,user_info,start,end,pre_day):
     user_reads_buys=pd.merge(user_reads,user_buys,on='user_id',how='outer')
     user_reads_buys.replace(np.nan,0,inplace=True)
     user_reads_buys['ratio']=user_reads_buys['typeCounts_y']/user_reads_buys['typeCounts_x']
-
     ##浏览量为0时，比值结果为inf用-1代替
     user_reads_buys.replace(np.inf,-1,inplace=True)
     user_reads_buys=user_reads_buys[['user_id','ratio']]
@@ -126,6 +130,7 @@ def getUserFeatures(all_cleanAction,user_info,start,end,pre_day):
     buy_allUsers['time']=buy_allUsers.time.apply(lambda x:getTopred(pre_day,x))
     sub_users=list(sub_Action['user_id'])
     buy_toPre=buy_allUsers[buy_allUsers['user_id'].isin (sub_users)]
+    buy_toPre=buy_toPre[['user_id','time']]
 
 
     ##用户上次活跃距离预测日的时长
@@ -138,6 +143,7 @@ def getUserFeatures(all_cleanAction,user_info,start,end,pre_day):
     active_allUsers['time']=active_allUsers.time.apply(lambda x:getTopred(pre_day,x))
     sub_users=list(sub_Action['user_id'])
     active_toPre=active_allUsers[active_allUsers['user_id'].isin (sub_users)]
+    active_toPre=active_toPre[['user_id','time']]
 
     ##用户最大下单量那天距离预测日的时长
     buy_allUsers=all_cleanAction[(all_cleanAction['type']==4)&(all_cleanAction['time']<=pre_day)]
@@ -151,6 +157,7 @@ def getUserFeatures(all_cleanAction,user_info,start,end,pre_day):
     buy_allUsers['time']=buy_allUsers.time.apply(lambda x:getTopred(pre_day,x))
     sub_users=list(sub_Action['user_id'])
     max_buy_toPre=buy_allUsers[buy_allUsers['user_id'].isin (sub_users)]
+    max_buy_toPre=active_toPre[['user_id','time']]
 
 
     ##用户浏览过的商品中发生购买的比值
@@ -158,42 +165,93 @@ def getUserFeatures(all_cleanAction,user_info,start,end,pre_day):
     t3['typeCounts']=1
     t3=t3.groupby(['user_id','sku_id','type']).agg('sum').reset_index()
     user_sku_reads=t3[t3['type']==1]
-    user_sku_reads=user_sku_reads[['user_id','sku_id','typeCounts']]
+    user_sku_reads=user_sku_reads[['user_id','sku_id']]
+    read_users=set(user_sku_reads['user_id'])
     user_sku_buys=t3[t3['type']==4]
-    user_sku_buys=user_sku_buys[['user_id','sku_id','typeCounts']]
-    user_sku_reads_buys=pd.merge(user_sku_reads,user_sku_buys,on=['user_id','sku_id'],how='outer')
-    user_sku_reads_buys.replace(np.nan,0,inplace=True)
-    user_sku_reads_buys['ratio']=user_sku_reads_buys['typeCounts_y']/user_sku_reads_buys['typeCounts_x']
-    user_sku_reads_buys.replace(np.nan,0,inplace=True)
-    user_sku_reads_buys=user_sku_reads_buys[['user_id','ratio']]
+    user_sku_buys=user_sku_buys[['user_id','sku_id']]
+    buy_user=set(user_sku_buys['user_id'])
+    all_users=(read_users)|(buy_user)
+    buyIn_reads_ratio=pd.DataFrame(columns=['user_id','ratio'])
+    i=-1
+    for user in list(all_users):
+        i+=1
+        if user in list(read_users):
+            if user in list(buy_user):
+                read_df=user_sku_reads[user_sku_reads['user_id']==user]
+                read_items=set(read_df['sku_id'])
+                buy_df=user_sku_buys[user_sku_buys['user_id']==user]
+                buy_items=set(buy_df['sku_id'])
+                items=len((read_items)&(buy_items))
+                ratio=items/float(len(read_items))
+                buyIn_reads_ratio.loc[i]=[user,ratio]
+            else:
+                buyIn_reads_ratio.loc[i]=[user,0]
+        else:
+            buyIn_reads_ratio.loc[i]=[user,-1]
+    buyIn_reads_ratio=buyIn_reads_ratio[['user_id','ratio']]
+
+
+
 
     ##用户关注过的商品中发生购买的比值
     t4=sub_Action[['user_id','sku_id','type']]
     t4['typeCounts']=1
     t4=t4.groupby(['user_id','sku_id','type']).agg('sum').reset_index()
     user_sku_attention=t4[t4['type']==5]
-    user_sku_attention=user_sku_attention[['user_id','sku_id','typeCounts']]
-    user_sku_buys=t4[t4['type']==4]
-    user_sku_buys=user_sku_buys[['user_id','sku_id','typeCounts']]
-    user_sku_attention_buys=pd.merge(user_sku_attention,user_sku_buys,on=['user_id','sku_id'],how='outer')
-    user_sku_attention_buys.replace(np.nan,0,inplace=True)
-    user_sku_attention_buys['ratio']=user_sku_attention['typeCounts_y']/user_sku_attention_buys['typeCounts_x']
-    user_sku_attention_buys.replace(np.nan,0,inplace=True)
-    user_sku_attention_buys=user_sku_attention_buys[['user_id','ratio']]
+    user_sku_attention=user_sku_attention[['user_id','sku_id']]
+    attention_users=set(user_sku_attention['user_id'])
+    user_sku_buys=t3[t3['type']==4]
+    user_sku_buys=user_sku_buys[['user_id','sku_id']]
+    buy_user=set(user_sku_buys['user_id'])
+    all_users=(attention_users)|(buy_user)
+    buyIn_attention_ratio=pd.DataFrame(columns=['user_id','ratio'])
+    i=-1
+    for user in list(all_users):
+        i+=1
+        if user in list(attention_users):
+            if user in list(buy_user):
+                attention_df=user_sku_attention[user_sku_attention['user_id']==user]
+                attention_items=set(attention_df['sku_id'])
+                buy_df=user_sku_buys[user_sku_buys['user_id']==user]
+                buy_items=set(buy_df['sku_id'])
+                items=len((attention_items)&(buy_items))
+                ratio=items/float(len(attention_items))
+                buyIn_attention_ratio.loc[i]=[user,ratio]
+            else:
+                buyIn_attention_ratio.loc[i]=[user,0]
+        else:
+            buyIn_attention_ratio.loc[i]=[user,-1]
+    buyIn_attention_ratio=buyIn_attention_ratio[['user_id','ratio']]
 
     ##用户加入购物车中下单的比值
     t5=sub_Action[['user_id','sku_id','type']]
     t5['typeCounts']=1
     t5=t5.groupby(['user_id','sku_id','type']).agg('sum').reset_index()
-    user_sku_addshop=t5[t5['type']==2]
-    user_sku_addshop=user_sku_addshop[['user_id','sku_id','typeCounts']]
-    user_sku_buys=t5[t5['type']==4]
-    user_sku_buys=user_sku_buys[['user_id','sku_id','typeCounts']]
-    user_sku_addshop_buys=pd.merge(user_sku_addshop,user_sku_buys,on=['user_id','sku_id'],how='outer')
-    user_sku_addshop_buys.replace(np.nan,0,inplace=True)
-    user_sku_addshop_buys['ratio']=user_sku_addshop_buys['typeCounts_y']/user_sku_addshop_buys['typeCounts_x']
-    user_sku_addshop_buys.replace(np.nan,0,inplace=True)
-    user_sku_addshop_buys=user_sku_addshop_buys[['user_id','ratio']]
+    user_sku_addshop=t4[t4['type']==2]
+    user_sku_addshop=user_sku_addshop[['user_id','sku_id']]
+    addshop_users=set(user_sku_addshop['user_id'])
+    user_sku_buys=t3[t3['type']==4]
+    user_sku_buys=user_sku_buys[['user_id','sku_id']]
+    buy_user=set(user_sku_buys['user_id'])
+    all_users=(addshop_users)|(buy_user)
+    buyIn_addshop_ratio=pd.DataFrame(columns=['user_id','ratio'])
+    i=-1
+    for user in list(all_users):
+        i+=1
+        if user in list(addshop_users):
+            if user in list(buy_user):
+                addshop_df=user_sku_addshop[user_sku_addshop['user_id']==user]
+                addshop_items=set(addshop_df['sku_id'])
+                buy_df=user_sku_buys[user_sku_buys['user_id']==user]
+                buy_items=set(buy_df['sku_id'])
+                items=len((addshop_items)&(buy_items))
+                ratio=items/float(len(addshop_items))
+                buyIn_addshop_ratio.loc[i]=[user,ratio]
+            else:
+                buyIn_addshop_ratio.loc[i]=[user,0]
+        else:
+            buyIn_addshop_ratio.loc[i]=[user,-1]
+    buyIn_addshop_ratio=buyIn_addshop_ratio[['user_id','ratio']]
 
 
 
