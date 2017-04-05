@@ -32,6 +32,7 @@ def getTopred(pred_day,x):
     用户下单量与关注量的比值
     用户关注的商品中发生购买的比值
     用户加入购物车中下单的比值
+    用户近三天的行为加权
 '''
 def getUserFeatures(all_cleanAction,user_info,start,end,pre_day):
     '''
@@ -43,10 +44,13 @@ def getUserFeatures(all_cleanAction,user_info,start,end,pre_day):
     '''
     user_info['user_reg_dt']=user_info.user_reg_dt.apply(lambda x:getTopred2(pre_day,x))
     ##提取用户性别，等级注册日期到预测日的距离特征，注意没有对类别型变量进行getdummies变换
-    sub_user=user_info[['user_id','age','sex','user_lv_cd','user_reg_dt']]
-
+    sub_info=user_info[['user_id','age','sex','user_lv_cd','user_reg_dt']]
+    sub_info_users=list(sub_info['user_id'])
     ##提取start到end这个时间段内的用户行为数据
     sub_Action=all_cleanAction[(all_cleanAction['time']>=start)&(all_cleanAction['time']<=end)]
+    sub_Action=pd.merge(sub_info,sub_Action,on='user_id',how='left')
+    sub_Action=sub_Action[['user_id','sku_id','time','model_id','type','cate','brand']]
+    #sub_Action.replace(np.nan,0,inplace=True)
 
     ##统计每个用户对每个行为的次数
     t1=sub_Action[['user_id','type']]
@@ -113,12 +117,13 @@ def getUserFeatures(all_cleanAction,user_info,start,end,pre_day):
 
 
     ###计算用户活跃天数
-    t2=sub_Action.copy()
-    t2['count']=1
-    t2=t2.groupby(['user_id','time']).agg('sum').reset_index()
-    t2=t2[['user_id']]
-    t2['active_days']=1
-    t2=t2.groupby('user_id').agg('sum').reset_index()
+    active_days=sub_Action.copy()
+    active_days['count']=1
+    active_days=active_days.groupby(['user_id','time']).agg('sum').reset_index()
+    active_days=active_days[['user_id']]
+    active_days['active_days']=1
+    active_days=active_days.groupby('user_id').agg('sum').reset_index()
+    active_days=active_days[['user_id','active_days']]
 
     ##用户上次下单距离预测日的时长
     buy_allUsers=all_cleanAction[(all_cleanAction['type']==4)&(all_cleanAction['time']<=pre_day)]
@@ -200,7 +205,7 @@ def getUserFeatures(all_cleanAction,user_info,start,end,pre_day):
     user_sku_attention=t4[t4['type']==5]
     user_sku_attention=user_sku_attention[['user_id','sku_id']]
     attention_users=set(user_sku_attention['user_id'])
-    user_sku_buys=t3[t3['type']==4]
+    user_sku_buys=t4[t4['type']==4]
     user_sku_buys=user_sku_buys[['user_id','sku_id']]
     buy_user=set(user_sku_buys['user_id'])
     all_users=(attention_users)|(buy_user)
@@ -227,10 +232,10 @@ def getUserFeatures(all_cleanAction,user_info,start,end,pre_day):
     t5=sub_Action[['user_id','sku_id','type']]
     t5['typeCounts']=1
     t5=t5.groupby(['user_id','sku_id','type']).agg('sum').reset_index()
-    user_sku_addshop=t4[t4['type']==2]
+    user_sku_addshop=t5[t5['type']==2]
     user_sku_addshop=user_sku_addshop[['user_id','sku_id']]
     addshop_users=set(user_sku_addshop['user_id'])
-    user_sku_buys=t3[t3['type']==4]
+    user_sku_buys=t5[t5['type']==4]
     user_sku_buys=user_sku_buys[['user_id','sku_id']]
     buy_user=set(user_sku_buys['user_id'])
     all_users=(addshop_users)|(buy_user)
@@ -252,6 +257,51 @@ def getUserFeatures(all_cleanAction,user_info,start,end,pre_day):
         else:
             buyIn_addshop_ratio.loc[i]=[user,-1]
     buyIn_addshop_ratio=buyIn_addshop_ratio[['user_id','ratio']]
+
+
+    ##用户近三天的行为加权,统计每个用户在近三天的每一天的活跃次数，并且越靠近预测日，权值越大
+    Thre_days=datetime.timedelta(days=2)
+    one_day=datetime.timedelta(days=1)
+    endDay=datetime.datetime.strptime(end,'%Y-%m-%d')
+    endDay=endDay-Thre_days
+    end=endDay.strftime('%Y-%m-%d')
+    Action_end_3=all_cleanAction[(all_cleanAction['time']==end)]
+    Action_end_3['count_3']=1
+    Action_end_3=Action_end_3.groupby(['user_id']).agg('sum').reset_index()
+    Action_end_3=Action_end_3[['user_id','count_3']]
+    endDay=endDay+one_day
+    end=endDay.strftime('%Y-%m-%d')
+    Action_end_2=all_cleanAction[(all_cleanAction['time']==end)]
+    Action_end_2['count_2']=1
+    Action_end_2=Action_end_2.groupby(['user_id']).agg('sum').reset_index()
+    Action_end_2=Action_end_2[['user_id','count_2']]
+    endDay=endDay+one_day
+    end=endDay.strftime('%Y-%m-%d')
+    Action_end_1=all_cleanAction[(all_cleanAction['time']==end)]
+    Action_end_1['count_1']=1
+    Action_end_1=Action_end_1.groupby(['user_id']).agg('sum').reset_index()
+    Action_end_1=Action_end_1[['user_id','count_1']]
+    ##前一天的行为权值5，前第两天3，前第三天1
+    all_users=set(sub_Action['user_id'])
+    user_Thre_active=pd.DataFrame(columns=['user_id','weight'])
+    i=-1
+    for user in list(all_users):
+        i+=1
+        a=int(list(Action_end_3[Action_end_3['user_id']==user]['count_3'])[0])*5
+        b=int(list(Action_end_2[Action_end_2['user_id']==user]['count_2'])[0])*2
+        c=int(list(Action_end_1[Action_end_1['user_id']==user]['count_3'])[0])
+        weight=sum(a,b,c)
+        user_Thre_active.loc[i]=[user,weight]
+    user_Thre_active=user_Thre_active[['user_id','weight']]
+
+    ##下面将以上用户一系列特征融合成一张表
+
+
+
+
+
+
+
 
 
 
